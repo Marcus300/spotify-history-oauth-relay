@@ -18,87 +18,45 @@
   <p id="status">Validando o retorno do Spotify…</p>
   <p id="fallback" hidden>Se o redirecionamento não ocorrer, <a id="fallbackLink" href="#">continue para o Umbrel local</a>.</p>
 </main>
+<script src="./relay.js"></script>
 <script>
 (function(){
-  const status=document.getElementById('status');
-  const fallback=document.getElementById('fallback');
-  const fallbackLink=document.getElementById('fallbackLink');
+  "use strict";
+  const status=document.getElementById("status");
+  const fallback=document.getElementById("fallback");
+  const fallbackLink=document.getElementById("fallbackLink");
 
   function fail(message){
+    history.replaceState(null,"",window.location.pathname);
     status.textContent=message;
-    status.className='error';
+    status.className="error";
   }
 
-  function decodeBase64Url(value){
-    const normalized=value.replace(/-/g,'+').replace(/_/g,'/');
-    const padded=normalized+'='.repeat((4-normalized.length%4)%4);
-    return decodeURIComponent(Array.prototype.map.call(atob(padded),c =>
-      '%'+c.charCodeAt(0).toString(16).padStart(2,'0')
-    ).join(''));
-  }
-
-  function isPrivateIPv4(host){
-    const parts=host.split('.');
-    if(parts.length!==4 || parts.some(p=>!/^(0|[1-9]\d{0,2})$/.test(p))) return false;
-    const n=parts.map(Number);
-    if(n.some(v=>v<0||v>255)) return false;
-    return n[0]===10 ||
-      n[0]===127 ||
-      (n[0]===169 && n[1]===254) ||
-      (n[0]===172 && n[1]>=16 && n[1]<=31) ||
-      (n[0]===192 && n[1]===168);
-  }
-
-  function isLocalOrigin(originText){
-    let url;
-    try{url=new URL(originText)}catch{return false}
-    if(!['http:','https:'].includes(url.protocol)) return false;
-    if(url.username || url.password) return false;
-    if(url.pathname!=='/' || url.search || url.hash) return false;
-
-    const host=url.hostname.toLowerCase();
-    if(host==='umbrel.local' || host.endsWith('.local')) return true;
-    if(isPrivateIPv4(host)) return true;
-
-    const v6=host.replace(/^\[/,'').replace(/\]$/,'');
-    if(v6==='::1' || v6.startsWith('fc') || v6.startsWith('fd') ||
-       /^fe[89ab]/i.test(v6)) return true;
-    return false;
-  }
-
-  const q=new URLSearchParams(window.location.search);
-  const state=q.get('state');
-  if(!state){fail('Retorno OAuth sem state. Inicie novamente pelo Umbrel.');return}
-
-  const pieces=state.split('.');
-  if(pieces.length!==3 || pieces[0]!=='v1'){
-    fail('State incompatível com o relay local. Inicie novamente pelo Umbrel.');
+  let target;
+  try{
+    target=SpotifyHistoryRelay.buildTarget(window.location.search);
+  }catch(error){
+    const message=String(error && error.message || "");
+    if(message==="missing state"){
+      fail("Retorno OAuth sem state. Inicie novamente pelo Umbrel.");
+    }else if(message==="unsupported state"){
+      fail("State incompatível com o relay local. Inicie novamente pelo Umbrel.");
+    }else if(message==="non-local origin"){
+      fail("O destino de retorno não pertence a uma rede local permitida.");
+    }else if(message.startsWith("duplicate")){
+      fail("Retorno OAuth ambíguo. Inicie novamente pelo Umbrel.");
+    }else{
+      fail("Não foi possível interpretar o destino local.");
+    }
     return;
   }
 
-  let origin;
-  try{origin=decodeBase64Url(pieces[1])}catch{
-    fail('Não foi possível interpretar o destino local.');
-    return;
-  }
-
-  if(!isLocalOrigin(origin)){
-    fail('O destino de retorno não pertence a uma rede local permitida.');
-    return;
-  }
-
-  const target=new URL('/auth/callback',origin);
-  for(const key of ['code','state','error','error_description']){
-    const value=q.get(key);
-    if(value!==null) target.searchParams.set(key,value);
-  }
-
-  history.replaceState(null,'',window.location.pathname);
-  status.textContent='Retorno validado. Voltando para o Umbrel na rede local…';
-  status.className='ok';
-  fallbackLink.href=target.toString();
+  history.replaceState(null,"",window.location.pathname);
+  status.textContent="Retorno validado. Voltando para o Umbrel na rede local…";
+  status.className="ok";
+  fallbackLink.href=target;
   fallback.hidden=false;
-  window.location.replace(target.toString());
+  window.location.replace(target);
 })();
 </script>
 </body>
