@@ -46,3 +46,8 @@ Regras aplicadas:
 - não faz `fetch`, XHR ou qualquer chamada direta ao Umbrel.
 
 O workflow do GitHub Pages executa a bateria `node --test tests/relay.test.js` antes da publicação.
+
+
+## Validação contínua
+
+Pull requests executam somente a suíte de segurança do relay. O deploy para GitHub Pages ocorre apenas após push em `main` ou execução manual, sempre depois dos testes.
