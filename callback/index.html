@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Spotify History — Retorno OAuth</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0d10;color:#f3f5f7;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+    main{max-width:620px;margin:24px;padding:28px;border:1px solid #2a3139;border-radius:16px;background:#14181d}
+    h1{font-size:22px;margin-top:0}p{color:#a9b2bc;line-height:1.55}.error{color:#ff9e9e}.ok{color:#7ae3a4}
+    a{color:#1ed760;word-break:break-all}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Spotify History</h1>
+  <p id="status">Validando o retorno do Spotify…</p>
+  <p id="fallback" hidden>Se o redirecionamento não ocorrer, <a id="fallbackLink" href="#">continue para o Umbrel local</a>.</p>
+</main>
+<script>
+(function(){
+  const status=document.getElementById('status');
+  const fallback=document.getElementById('fallback');
+  const fallbackLink=document.getElementById('fallbackLink');
+
+  function fail(message){
+    status.textContent=message;
+    status.className='error';
+  }
+
+  function decodeBase64Url(value){
+    const normalized=value.replace(/-/g,'+').replace(/_/g,'/');
+    const padded=normalized+'='.repeat((4-normalized.length%4)%4);
+    return decodeURIComponent(Array.prototype.map.call(atob(padded),c =>
+      '%'+c.charCodeAt(0).toString(16).padStart(2,'0')
+    ).join(''));
+  }
+
+  function isPrivateIPv4(host){
+    const parts=host.split('.');
+    if(parts.length!==4 || parts.some(p=>!/^(0|[1-9]\d{0,2})$/.test(p))) return false;
+    const n=parts.map(Number);
+    if(n.some(v=>v<0||v>255)) return false;
+    return n[0]===10 ||
+      n[0]===127 ||
+      (n[0]===169 && n[1]===254) ||
+      (n[0]===172 && n[1]>=16 && n[1]<=31) ||
+      (n[0]===192 && n[1]===168);
+  }
+
+  function isLocalOrigin(originText){
+    let url;
+    try{url=new URL(originText)}catch{return false}
+    if(!['http:','https:'].includes(url.protocol)) return false;
+    if(url.username || url.password) return false;
+    if(url.pathname!=='/' || url.search || url.hash) return false;
+
+    const host=url.hostname.toLowerCase();
+    if(host==='umbrel.local' || host.endsWith('.local')) return true;
+    if(isPrivateIPv4(host)) return true;
+
+    const v6=host.replace(/^\[/,'').replace(/\]$/,'');
+    if(v6==='::1' || v6.startsWith('fc') || v6.startsWith('fd') ||
+       /^fe[89ab]/i.test(v6)) return true;
+    return false;
+  }
+
+  const q=new URLSearchParams(window.location.search);
+  const state=q.get('state');
+  if(!state){fail('Retorno OAuth sem state. Inicie novamente pelo Umbrel.');return}
+
+  const pieces=state.split('.');
+  if(pieces.length!==3 || pieces[0]!=='v1'){
+    fail('State incompatível com o relay local. Inicie novamente pelo Umbrel.');
+    return;
+  }
+
+  let origin;
+  try{origin=decodeBase64Url(pieces[1])}catch{
+    fail('Não foi possível interpretar o destino local.');
+    return;
+  }
+
+  if(!isLocalOrigin(origin)){
+    fail('O destino de retorno não pertence a uma rede local permitida.');
+    return;
+  }
+
+  const target=new URL('/auth/callback',origin);
+  for(const key of ['code','state','error','error_description']){
+    const value=q.get(key);
+    if(value!==null) target.searchParams.set(key,value);
+  }
+
+  history.replaceState(null,'',window.location.pathname);
+  status.textContent='Retorno validado. Voltando para o Umbrel na rede local…';
+  status.className='ok';
+  fallbackLink.href=target.toString();
+  fallback.hidden=false;
+  window.location.replace(target.toString());
+})();
+</script>
+</body>
+</html>
